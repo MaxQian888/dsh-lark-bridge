@@ -200,7 +200,7 @@ test("surfaces a terminal SDK failure after readiness", async () => {
   assert.deepEqual(closeInput, { force: true });
 });
 
-test("replies in the topic rooted at the inbound message", async () => {
+test("replies with a Markdown post in the topic rooted at the inbound message", async () => {
   let replyInput:
     | {
         path: { message_id: string };
@@ -226,15 +226,26 @@ test("replies in the topic rooted at the inbound message", async () => {
   assert.deepEqual(
     await transport.replyToMessage(
       { sourceMessageId: "om_followup", topicRootMessageId: "om_root" },
-      "回答",
+      "## 引用（使用处）\n\n**`src/bridge.ts:187`**\n\n```ts\nnew TopicScheduler(4)\n```",
     ),
     { messageId: "om_reply", threadId: "omt_thread" },
   );
   assert.deepEqual(replyInput, {
     path: { message_id: "om_root" },
     data: {
-      msg_type: "text",
-      content: JSON.stringify({ text: "回答" }),
+      msg_type: "post",
+      content: JSON.stringify({
+        zh_cn: {
+          content: [
+            [
+              {
+                tag: "md",
+                text: "## 引用（使用处）\n\n**`src/bridge.ts:187`**\n\n```ts\nnew TopicScheduler(4)\n```",
+              },
+            ],
+          ],
+        },
+      }),
       uuid: replyIdempotencyKey("om_followup"),
       reply_in_thread: true,
     },

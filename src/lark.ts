@@ -290,7 +290,7 @@ export function replyIdempotencyKey(messageId: string): string {
   return `dsh-${digest}`;
 }
 
-function replyText(text: string): string {
+function replyMarkdown(text: string): string {
   const normalized = text.trim() || "DeepSeek Harness 未生成文本回复。";
   if (normalized.length <= 10_000) return normalized;
   return `${normalized.slice(0, 9_980)}\n\n[回复已截断]`;
@@ -402,8 +402,12 @@ export class LarkSdkTransport implements LarkMessageTransport {
     const response = await this.apiClient.im.message.reply({
       path: { message_id: route.topicRootMessageId },
       data: {
-        msg_type: "text",
-        content: JSON.stringify({ text: replyText(text) }),
+        msg_type: "post",
+        content: JSON.stringify({
+          zh_cn: {
+            content: [[{ tag: "md", text: replyMarkdown(text) }]],
+          },
+        }),
         uuid: replyIdempotencyKey(route.sourceMessageId),
         reply_in_thread: true,
       },
