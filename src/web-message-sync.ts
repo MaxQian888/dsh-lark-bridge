@@ -3,11 +3,13 @@ import {
   type DshBridgeClient,
   type SessionEvent,
 } from "./dsh-client.js";
+import { DshCotProjection } from "./cot.js";
 import type { BridgeLogger } from "./bridge.js";
 import type { LarkMessageTransport } from "./lark.js";
 
 interface LinkedTopic {
   topicRootMessageId: string;
+  chatId?: string;
   afterSeq: number;
   turn?: TurnMirror;
 }
@@ -16,13 +18,25 @@ interface TurnMirror {
   hasBridgePrompt: boolean;
   hasWebPrompt: boolean;
   assistantText: string;
+  progressEvents: SessionEvent[];
+  cotDisabled: boolean;
+  cot?: DshCotProjection;
 }
+
+const PROGRESS_EVENT_TYPES = new Set(["step/start", "tool/call", "tool/result"]);
+const INTERRUPTED_REASON_KINDS = new Set([
+  "aborted",
+  "cancelled",
+  "interrupted",
+]);
 
 function turnFor(topic: LinkedTopic): TurnMirror {
   return (topic.turn ??= {
     hasBridgePrompt: false,
     hasWebPrompt: false,
     assistantText: "",
+    progressEvents: [],
+    cotDisabled: false,
   });
 }
 
@@ -73,6 +87,20 @@ function assistantMessage(event: SessionEvent): string | undefined {
   return messageText(object(object(event.data)?.message)?.content);
 }
 
+function isProgressEvent(event: SessionEvent): boolean {
+  return PROGRESS_EVENT_TYPES.has(event.type);
+}
+
+function cotOutcome(
+  event: SessionEvent,
+): "done" | "error" | "interrupted" {
+  const reason = object(object(event.data)?.reason);
+  if (reason?.kind === "completed") return "done";
+  return INTERRUPTED_REASON_KINDS.has(String(reason?.kind))
+    ? "interrupted"
+    : "error";
+}
+
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new Error("operation aborted");
 }
@@ -107,12 +135,18 @@ export class WebMessageSync {
     sessionId: string,
     topicRootMessageId: string,
     afterSeq: number,
+    chatId?: string,
   ): void {
     const existing = this.topics.get(sessionId);
     if (existing === undefined) {
-      this.topics.set(sessionId, { topicRootMessageId, afterSeq });
+      this.topics.set(sessionId, {
+        topicRootMessageId,
+        afterSeq,
+        ...(chatId === undefined ? {} : { chatId }),
+      });
     } else {
       existing.topicRootMessageId = topicRootMessageId;
+      if (chatId !== undefined) existing.chatId = chatId;
     }
   }
 
@@ -167,6 +201,8 @@ export class WebMessageSync {
         hasBridgePrompt: false,
         hasWebPrompt: false,
         assistantText: "",
+        progressEvents: [],
+        cotDisabled: false,
       };
       return;
     }
@@ -179,10 +215,12 @@ export class WebMessageSync {
         this.bridgePromptRpcIds.delete(prompt.rpcId)
       ) {
         turn.hasBridgePrompt = true;
+        turn.progressEvents = [];
+        turn.cotDisabled = true;
         return;
       }
       turn.hasWebPrompt = true;
-      await this.lark.replyToMessage(
+      const mirrored = await this.lark.replyToMessage(
         {
           sourceMessageId: `web-user:${sessionId}:${event.seq}`,
           topicRootMessageId: topic.topicRootMessageId,
@@ -194,6 +232,64 @@ export class WebMessageSync {
         eventSeq: event.seq,
         role: "user",
       });
+      if (!turn.hasBridgePrompt && topic.chatId !== undefined) {
+        try {
+          const cotMessage = await this.lark.createCot({
+            chatId: topic.chatId,
+            sourceMessageId: mirrored.messageId,
+          });
+          const cot = new DshCotProjection(
+            cotMessage.writer,
+            `web:${sessionId}:${event.seq}`,
+            mirrored.messageId,
+          );
+          turn.cot = cot;
+          await cot.start(prompt.text);
+          await cot.present(turn.progressEvents);
+          turn.progressEvents = [];
+          this.logger.info("web_cot_created", {
+            sessionId,
+            eventSeq: event.seq,
+            cotId: cotMessage.cotId,
+            messageId: cotMessage.messageId,
+          });
+        } catch (error) {
+          await turn.cot?.finish("error").catch(() => undefined);
+          delete turn.cot;
+          turn.progressEvents = [];
+          turn.cotDisabled = true;
+          this.logger.warn("web_cot_start_failed", {
+            sessionId,
+            eventSeq: event.seq,
+            errorName: error instanceof Error ? error.name : typeof error,
+          });
+        }
+      } else {
+        turn.progressEvents = [];
+        turn.cotDisabled = true;
+      }
+      return;
+    }
+
+    if (isProgressEvent(event)) {
+      const turn = turnFor(topic);
+      if (turn.cot === undefined) {
+        if (!turn.cotDisabled) turn.progressEvents.push(event);
+      } else {
+        try {
+          await turn.cot.present([event]);
+        } catch (error) {
+          await turn.cot.finish("error").catch(() => undefined);
+          delete turn.cot;
+          turn.progressEvents = [];
+          turn.cotDisabled = true;
+          this.logger.warn("web_cot_update_failed", {
+            sessionId,
+            eventSeq: event.seq,
+            errorName: error instanceof Error ? error.name : typeof error,
+          });
+        }
+      }
       return;
     }
 
@@ -207,6 +303,13 @@ export class WebMessageSync {
     if (event.type !== "turn/end") return;
     const turn = topic.turn;
     if (turn?.hasWebPrompt && !turn.hasBridgePrompt) {
+      await turn.cot?.finish(cotOutcome(event)).catch((error: unknown) => {
+        this.logger.warn("web_cot_finish_failed", {
+          sessionId,
+          eventSeq: event.seq,
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+      });
       await this.lark.replyToMessage(
         {
           sourceMessageId: `web-assistant:${sessionId}:${event.seq}`,

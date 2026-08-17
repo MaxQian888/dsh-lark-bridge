@@ -62,6 +62,7 @@ test("a new bridge process restores Feishu topic links", async () => {
     topicLink: {
       sessionId: "session-1",
       topicRootMessageId: "root-message",
+      chatId: "chat-1",
     },
   });
   await first.markReplied("event-1");
@@ -70,7 +71,11 @@ test("a new bridge process restores Feishu topic links", async () => {
     ownerId: "process-2",
   });
   assert.deepEqual(await restarted.topicLinks(), [
-    { sessionId: "session-1", topicRootMessageId: "root-message" },
+    {
+      sessionId: "session-1",
+      topicRootMessageId: "root-message",
+      chatId: "chat-1",
+    },
   ]);
 });
 

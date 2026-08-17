@@ -210,6 +210,7 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
         link.sessionId,
         link.topicRootMessageId,
         await options.client.lastSeq(link.sessionId),
+        link.chatId,
       );
     } catch (error) {
       logger.warn("web_sync_link_restore_failed", {
@@ -263,6 +264,7 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
             topicLink: {
               sessionId,
               topicRootMessageId: topicRoot,
+              chatId: message.chatId,
             },
           });
         } catch (error) {
@@ -283,7 +285,12 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
         }
 
         if (decision.kind === "resume") {
-          webSync.link(sessionId, topicRoot, decision.checkpoint.beforeSeq);
+          webSync.link(
+            sessionId,
+            topicRoot,
+            decision.checkpoint.beforeSeq,
+            message.chatId,
+          );
         }
 
         let permitAcquired = false;
@@ -373,7 +380,12 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
                   : {}),
                 onPrompted: async (checkpoint) => {
                   await admission.markPrompted(message.eventId, checkpoint);
-                  webSync.link(sessionId, topicRoot, checkpoint.beforeSeq);
+                  webSync.link(
+                    sessionId,
+                    topicRoot,
+                    checkpoint.beforeSeq,
+                    message.chatId,
+                  );
                   logger.info("event_admitted", {
                     eventId: message.eventId,
                     sessionId,

@@ -21,6 +21,7 @@ export interface PromptCheckpoint {
 export interface LarkTopicLink {
   sessionId: string;
   topicRootMessageId: string;
+  chatId?: string;
 }
 
 export type AdmissionDecision =
@@ -130,13 +131,15 @@ function parseSnapshot(value: unknown): AdmissionSnapshot {
       const input = record.topicLink as Record<string, unknown>;
       if (
         typeof input.sessionId !== "string" ||
-        typeof input.topicRootMessageId !== "string"
+        typeof input.topicRootMessageId !== "string" ||
+        (input.chatId !== undefined && typeof input.chatId !== "string")
       ) {
         throw new Error("event admission topic link is incomplete");
       }
       topicLink = {
         sessionId: input.sessionId,
         topicRootMessageId: input.topicRootMessageId,
+        ...(typeof input.chatId === "string" ? { chatId: input.chatId } : {}),
       };
     }
     return {

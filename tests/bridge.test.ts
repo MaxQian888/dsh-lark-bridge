@@ -226,7 +226,7 @@ test("a Feishu topic reuses one DSH session and replies to its root", async () =
   assert.equal(JSON.stringify(lark.cotEvents).includes("hidden"), false);
 });
 
-test("messages sent from Web appear in the linked Feishu topic", async () => {
+test("messages sent from Web show progress in the linked Feishu topic", async () => {
   const client = new FakeDshClient();
   let lark!: FakeLarkTransport;
   lark = new FakeLarkTransport(
@@ -288,9 +288,28 @@ test("messages sent from Web appear in the linked Feishu topic", async () => {
           },
         },
         {
-          type: "assistant/message",
+          type: "tool/call",
           seq: 9,
           time: 9,
+          data: {
+            callId: "web-call-1",
+            name: "read",
+            arguments: "hidden Web arguments",
+          },
+        },
+        {
+          type: "tool/result",
+          seq: 10,
+          time: 10,
+          data: {
+            callId: "web-call-1",
+            secretResult: "hidden Web result",
+          },
+        },
+        {
+          type: "assistant/message",
+          seq: 11,
+          time: 11,
           data: {
             message: {
               content: [{ type: "text", text: "answer for Web" }],
@@ -299,13 +318,16 @@ test("messages sent from Web appear in the linked Feishu topic", async () => {
         },
         {
           type: "turn/end",
-          seq: 10,
-          time: 10,
+          seq: 12,
+          time: 12,
           data: { turn: 3, reason: { kind: "completed" } },
         },
       ];
       const deadline = Date.now() + 700;
-      while (lark.replyTexts.length < 3 && Date.now() < deadline) {
+      while (
+        (lark.replyTexts.length < 3 || lark.cotEvents.length < 18) &&
+        Date.now() < deadline
+      ) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     },
@@ -328,8 +350,26 @@ test("messages sent from Web appear in the linked Feishu topic", async () => {
       topicRootMessageId: "root-message",
     },
     {
-      sourceMessageId: "web-assistant:lark-4d218b499373d512515ee2b4:10",
+      sourceMessageId: "web-assistant:lark-4d218b499373d512515ee2b4:12",
       topicRootMessageId: "root-message",
     },
   ]);
+  assert.ok(lark.operations.includes("cot:create:chat-1:reply-2:false"));
+  assert.deepEqual(
+    lark.cotEvents.slice(-9).map((event) => event.eventType),
+    [
+      "RUN_STARTED",
+      "REASONING_START",
+      "REASONING_MESSAGE_START",
+      "REASONING_MESSAGE_CONTENT",
+      "REASONING_MESSAGE_END",
+      "TOOL_CALL_START",
+      "TOOL_CALL_END",
+      "REASONING_END",
+      "RUN_FINISHED",
+    ],
+  );
+  const webCot = JSON.stringify(lark.cotEvents.slice(-9));
+  assert.equal(webCot.includes("hidden Web arguments"), false);
+  assert.equal(webCot.includes("hidden Web result"), false);
 });
