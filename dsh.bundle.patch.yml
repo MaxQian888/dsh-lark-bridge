@@ -3,7 +3,7 @@
 
 - insert:
     - id: dsh-lark-bridge
-      name: '@aiden-ai/dsh-lark-bridge'
+      name: '@open-aiden/dsh-lark-bridge'
       inject: [apiProxy]
       config:
         enabled: !!js process.env.DSH_LARK_ENABLED !== '0'

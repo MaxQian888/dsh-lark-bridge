@@ -1,4 +1,4 @@
-# @aiden-ai/dsh-lark-bridge
+# @open-aiden/dsh-lark-bridge
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-339933?style=flat-square&logo=nodedotjs)](package.json)
@@ -59,7 +59,7 @@ git clone https://github.com/Kinasha/dsh-lark-bridge.git
 cd dsh-lark-bridge
 npm ci
 npm pack
-dsh plugin --profile web add ./aiden-ai-dsh-lark-bridge-0.0.7.tgz \
+dsh plugin --profile web add ./open-aiden-dsh-lark-bridge-0.0.7.tgz \
   --allow-build=protobufjs
 ```
 
@@ -68,7 +68,7 @@ dsh plugin --profile web add ./aiden-ai-dsh-lark-bridge-0.0.7.tgz \
 可以访问 bnpm 的用户也可以直接安装已发布的包：
 
 ```bash
-dsh plugin --profile web add @aiden-ai/dsh-lark-bridge@0.0.7 \
+dsh plugin --profile web add @open-aiden/dsh-lark-bridge@0.0.7 \
   --registry=https://bnpm.byted.org \
   --allow-build=protobufjs
 ```
@@ -218,14 +218,14 @@ source ~/.zshrc
 升级：
 
 ```bash
-dsh plugin --profile web update @aiden-ai/dsh-lark-bridge \
+dsh plugin --profile web update @open-aiden/dsh-lark-bridge \
   --registry=https://bnpm.byted.org
 ```
 
 卸载：
 
 ```bash
-dsh plugin --profile web remove @aiden-ai/dsh-lark-bridge
+dsh plugin --profile web remove @open-aiden/dsh-lark-bridge
 ```
 
 卸载不会删除已有 DSH Session，也不会删除

@@ -1,5 +1,5 @@
 {
-  "name": "@aiden-ai/dsh-lark-bridge",
+  "name": "@open-aiden/dsh-lark-bridge",
   "version": "0.0.7",
   "private": false,
   "type": "module",
@@ -21,7 +21,7 @@
     "agent"
   ],
   "publishConfig": {
-    "registry": "https://bnpm.byted.org"
+    "registry": "https://registry.npmjs.org"
   },
   "main": "./dist/src/plugin.js",
   "types": "./dist/src/plugin.d.ts",
