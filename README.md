@@ -163,7 +163,10 @@ DSH 插件都已就绪。然后打开 DSH 输出的 Web 地址，通常是
    新话题和新 Session。
 7. 点击 Web 页面右下角的“飞书用户授权”；授权页会显示需要登记的完整回调地址，
    确认飞书应用安全设置中已有该地址后完成 OAuth 授权。
-8. 在 Web UI 中打开该 Session 并继续发送消息，原飞书话题会以本人身份显示用户
+8. 打开 `Settings → Plugins → Plugin configuration`，展开“飞书桥接”即可编辑完整
+   插件配置。配置写入 DSH Settings，使用 revision 校验避免覆盖并发修改，并在重启
+   DSH 后生效。
+9. 在 Web UI 中打开该 Session 并继续发送消息，原飞书话题会以本人身份显示用户
    输入；如果授权尚未完成或已经失效，则显示机器人发送的引用格式，并继续正常执行。
 
 当前插件接收私聊中的 `text` 和 `post` 消息；群聊只处理明确 `@机器人` 的这两类
@@ -188,6 +191,7 @@ Agent 知道 DSH Session 的准确 Workspace 路径；询问“你的工作区�
 | `DSH_LARK_WORKSPACE_TITLE` | `string` | 保留 DSH 标题 | `MyProject` | 显式覆盖 Web UI 中的 Workspace 名称 |
 | `DSH_LARK_AGENT_PRESET` | `string` | `dsh-lark-safe` | `dsh-lark-safe` | 新建飞书 Session 使用的 Agent preset |
 | `DSH_LARK_ALLOWED_SENDERS` | `string` | 空，允许所有可访问应用的用户 | `ou_a,ou_b` | 逗号分隔的飞书 sender open ID allowlist |
+| `DSH_LARK_BLOCKED_SENDERS` | `string` | 空 | `ou_bad_a,ou_bad_b` | 逗号分隔的 sender open ID blocklist；优先于 allowlist |
 | `DSH_LARK_MAX_CONCURRENT_TOPICS` | `number` | `4` | `8` | 不同话题可同时运行的最大 DSH Turn 数；同一话题始终串行 |
 | `DSH_LARK_MAX_PENDING_MESSAGES` | `number` | `256` | `128` | 传输和调度层允许保留的入站消息上限；超限时拒绝并等待上游重投 |
 | `DSH_LARK_EVENT_STATE_PATH` | `string` | `$DSH_HOME/.dsh-lark-bridge/events.json` | `/secure/state/events.json` | admission checkpoint 与飞书话题关联文件；以 `0600` 原子写入 |
@@ -204,11 +208,17 @@ export DSH_LARK_WORKSPACE_TITLE=MyProject
 dsh web
 ```
 
-生产使用建议设置 sender allowlist：
+生产使用建议设置 sender allowlist；如需拒绝其中的个别用户，再设置 blocklist：
 
 ```bash
 export DSH_LARK_ALLOWED_SENDERS=ou_trusted_user_1,ou_trusted_user_2
+export DSH_LARK_BLOCKED_SENDERS=ou_revoked_user
 ```
+
+统一 Settings 页面中的“飞书桥接”卡片覆盖上表中的 `DSH_LARK_*` 运行配置（飞书 App
+凭证仍只从启动环境读取）。环境变量构成 DSH Settings 的基础层，Web 保存的用户层覆盖
+它；重置字段后会重新继承环境变量。出于与 DSH 配置面相同的安全约束，设置 API 仅在
+Host 绑定 `127.0.0.1` 时注册。
 
 插件按话题调度消息：同一话题的消息按顺序执行，不同话题在
 `DSH_LARK_MAX_CONCURRENT_TOPICS` 上限内并行。关闭插件时，正在运行的 Turn 会收到取消

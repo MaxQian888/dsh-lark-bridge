@@ -21,6 +21,36 @@ test("event admission rejects senders outside the allowlist", async () => {
   );
 });
 
+test("event admission allows every non-blocked sender when the allowlist is empty", async () => {
+  const store = new EventAdmissionStore(new MemoryAdmissionAdapter(), {
+    allowedSenderIds: [],
+    blockedSenderIds: ["blocked-user"],
+    ownerId: "process-1",
+  });
+
+  assert.deepEqual(
+    await store.admit({ eventId: "event-1", senderId: "other-user" }),
+    { kind: "start" },
+  );
+});
+
+test("event admission applies the sender blocklist before the allowlist", async () => {
+  const store = new EventAdmissionStore(new MemoryAdmissionAdapter(), {
+    allowedSenderIds: ["blocked-user", "allowed-user"],
+    blockedSenderIds: ["blocked-user"],
+    ownerId: "process-1",
+  });
+
+  assert.deepEqual(
+    await store.admit({ eventId: "event-1", senderId: "blocked-user" }),
+    { kind: "rejected", reason: "sender_blocked" },
+  );
+  assert.deepEqual(
+    await store.admit({ eventId: "event-2", senderId: "allowed-user" }),
+    { kind: "start" },
+  );
+});
+
 test("event admission suppresses an in-flight duplicate but releases pre-prompt failures", async () => {
   const store = new EventAdmissionStore(new MemoryAdmissionAdapter(), {
     ownerId: "process-1",

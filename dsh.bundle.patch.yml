@@ -4,7 +4,7 @@
 - insert:
     - id: dsh-lark-bridge
       name: '@open-aiden/dsh-lark-bridge'
-      inject: [apiProxy, webServer]
+      inject: [apiProxy, webServer, settings]
       config:
         enabled: !!js process.env.DSH_LARK_ENABLED !== '0'
         workspacePath: !!js process.env.DSH_LARK_WORKSPACE || process.cwd()
@@ -12,6 +12,7 @@
         agentPreset: !!js process.env.DSH_LARK_AGENT_PRESET || 'dsh-lark-safe'
         installBundledPreset: true
         allowedSenderIds: !!js process.env.DSH_LARK_ALLOWED_SENDERS ? process.env.DSH_LARK_ALLOWED_SENDERS.split(',').map(value => value.trim()).filter(Boolean) : null
+        blockedSenderIds: !!js process.env.DSH_LARK_BLOCKED_SENDERS ? process.env.DSH_LARK_BLOCKED_SENDERS.split(',').map(value => value.trim()).filter(Boolean) : null
         maxConcurrentTopics: !!js Number(process.env.DSH_LARK_MAX_CONCURRENT_TOPICS || 4)
         maxPendingMessages: !!js Number(process.env.DSH_LARK_MAX_PENDING_MESSAGES || 256)
         eventStatePath: !!js process.env.DSH_LARK_EVENT_STATE_PATH

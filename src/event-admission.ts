@@ -28,7 +28,10 @@ export type AdmissionDecision =
   | { kind: "start" }
   | { kind: "resume"; checkpoint: PromptCheckpoint }
   | { kind: "duplicate" }
-  | { kind: "rejected"; reason: "sender_not_allowed" };
+  | {
+      kind: "rejected";
+      reason: "sender_not_allowed" | "sender_blocked";
+    };
 
 interface AdmissionRecord {
   eventId: string;
@@ -359,6 +362,7 @@ export function defaultAdmissionStatePath(
 
 export interface EventAdmissionOptions {
   allowedSenderIds?: readonly string[];
+  blockedSenderIds?: readonly string[];
   ownerId?: string;
   retentionMs?: number;
   now?: () => number;
@@ -368,6 +372,7 @@ const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export class EventAdmissionStore {
   private readonly allowedSenderIds: ReadonlySet<string> | undefined;
+  private readonly blockedSenderIds: ReadonlySet<string>;
   private readonly ownerId: string;
   private readonly retentionMs: number;
   private readonly now: () => number;
@@ -377,9 +382,10 @@ export class EventAdmissionStore {
     private readonly adapter: AdmissionAdapter,
     options: EventAdmissionOptions = {},
   ) {
-    this.allowedSenderIds = options.allowedSenderIds
+    this.allowedSenderIds = options.allowedSenderIds?.length
       ? new Set(options.allowedSenderIds)
       : undefined;
+    this.blockedSenderIds = new Set(options.blockedSenderIds ?? []);
     this.ownerId = options.ownerId ?? randomUUID();
     this.retentionMs = options.retentionMs ?? DEFAULT_RETENTION_MS;
     this.now = options.now ?? Date.now;
@@ -394,6 +400,9 @@ export class EventAdmissionStore {
     topicLink?: LarkTopicLink;
   }): Promise<AdmissionDecision> {
     return this.mutate<AdmissionDecision>(async (records) => {
+      if (this.blockedSenderIds.has(input.senderId)) {
+        return { value: { kind: "rejected", reason: "sender_blocked" } };
+      }
       if (
         this.allowedSenderIds !== undefined &&
         !this.allowedSenderIds.has(input.senderId)

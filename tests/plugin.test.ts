@@ -1,21 +1,25 @@
 import assert from "node:assert/strict";
-import type { Context } from "@deepseek-ai/cordis";
 import test from "node:test";
-import { apply } from "../src/plugin.js";
+import { Config, name, normalizeConfig } from "../src/plugin.js";
+
+test("plugin keeps its package name so DSH discovers its browser half", () => {
+  assert.equal(name, "@open-aiden/dsh-lark-bridge");
+});
 
 test("plugin treats a non-array sender allowlist as unset", async () => {
-  const messages: string[] = [];
-  const context = {
-    logger: () => ({
-      info: (message: string) => messages.push(message),
-    }),
-  } as unknown as Context;
-
-  await assert.doesNotReject(
-    apply(context, {
-      enabled: false,
-      allowedSenderIds: {} as string[],
-    }),
+  assert.deepEqual(Config({ allowedSenderIds: {} } as never).allowedSenderIds, []);
+  assert.equal(
+    normalizeConfig({ allowedSenderIds: {} as string[] }).allowedSenderIds,
+    undefined,
   );
-  assert.deepEqual(messages, ["status=disabled"]);
+});
+
+test("plugin normalizes and deduplicates sender lists", () => {
+  const config = normalizeConfig({
+    allowedSenderIds: [" ou_allowed ", "", "ou_allowed"],
+    blockedSenderIds: ["ou_blocked", " ou_blocked "],
+  });
+
+  assert.deepEqual(config.allowedSenderIds, ["ou_allowed"]);
+  assert.deepEqual(config.blockedSenderIds, ["ou_blocked"]);
 });

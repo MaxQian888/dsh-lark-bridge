@@ -60,6 +60,9 @@ function standaloneAdmission(): EventAdmissionStore {
   const allowedSenderIds = process.env.DSH_LARK_ALLOWED_SENDERS?.split(",")
     .map((senderId) => senderId.trim())
     .filter(Boolean);
+  const blockedSenderIds = process.env.DSH_LARK_BLOCKED_SENDERS?.split(",")
+    .map((senderId) => senderId.trim())
+    .filter(Boolean);
   return new EventAdmissionStore(
     new JsonFileAdmissionAdapter(
       process.env.DSH_LARK_EVENT_STATE_PATH?.trim() ||
@@ -67,6 +70,7 @@ function standaloneAdmission(): EventAdmissionStore {
     ),
     {
       ...(allowedSenderIds === undefined ? {} : { allowedSenderIds }),
+      ...(blockedSenderIds === undefined ? {} : { blockedSenderIds }),
       retentionMs: positiveEnvironmentInteger(
         "DSH_LARK_EVENT_RETENTION_MS",
         604_800_000,
