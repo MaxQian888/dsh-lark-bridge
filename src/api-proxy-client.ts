@@ -122,17 +122,19 @@ export class ApiProxyDshClient implements DshBridgeClient {
     return events.reduce((latest, event) => Math.max(latest, event.seq), -1);
   }
 
-  async prompt(sessionId: string, text: string): Promise<void> {
-    await unwrap(
-      this.api.sessions.prompt(
-        request({
-          sessionId: sessionId as never,
-          mode: "queue" as const,
-          content: [{ type: "text" as const, text }],
-          clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        }),
-      ),
-    );
+  async prompt(
+    sessionId: string,
+    text: string,
+    onRequest?: (rpcId: string) => void,
+  ): Promise<void> {
+    const prompt = request({
+      sessionId: sessionId as never,
+      mode: "queue" as const,
+      content: [{ type: "text" as const, text }],
+      clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    onRequest?.(prompt.rpcId);
+    await unwrap(this.api.sessions.prompt(prompt));
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {

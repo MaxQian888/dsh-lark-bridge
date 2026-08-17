@@ -79,8 +79,17 @@ export interface DshBridgeClient {
     workspaceId: string,
     agentPreset: string,
   ): Promise<EnsuredSession>;
+  history(
+    sessionId: string,
+    maxMessages?: number,
+    beforeSeq?: number,
+  ): Promise<SessionEvent[]>;
   lastSeq(sessionId: string): Promise<number>;
-  prompt(sessionId: string, text: string): Promise<void>;
+  prompt(
+    sessionId: string,
+    text: string,
+    onRequest?: (rpcId: string) => void,
+  ): Promise<void>;
   renameSession(sessionId: string, title: string): Promise<void>;
   waitForTurn(
     sessionId: string,
@@ -217,7 +226,7 @@ export async function waitForCompletedTurn(
   );
 }
 
-async function historySince(
+export async function historySince(
   history: (
     sessionId: string,
     maxMessages: number,
@@ -255,8 +264,13 @@ export class DshClient implements DshBridgeClient {
     private readonly requestTimeoutMs = 30_000,
   ) {}
 
-  async call<T>(method: string, payload: JsonObject): Promise<T> {
+  async call<T>(
+    method: string,
+    payload: JsonObject,
+    onRequest?: (rpcId: string) => void,
+  ): Promise<T> {
     const rpcId = randomUUID();
+    onRequest?.(rpcId);
     const response = await fetch(new URL(`/api/${method}`, this.baseUrl), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -369,13 +383,21 @@ export class DshClient implements DshBridgeClient {
     return events.reduce((latest, event) => Math.max(latest, event.seq), -1);
   }
 
-  async prompt(sessionId: string, text: string): Promise<void> {
-    await this.call("session.prompt", {
-      sessionId,
-      mode: "queue",
-      content: [{ type: "text", text }],
-      clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    });
+  async prompt(
+    sessionId: string,
+    text: string,
+    onRequest?: (rpcId: string) => void,
+  ): Promise<void> {
+    await this.call(
+      "session.prompt",
+      {
+        sessionId,
+        mode: "queue",
+        content: [{ type: "text", text }],
+        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+      onRequest,
+    );
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {

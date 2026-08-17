@@ -14,9 +14,9 @@ export LARK_APP_SECRET=xxx
 ```
 
 ```text
-飞书私聊 -> dsh-lark-bridge -> DSH Session -> DSH Web UI
+飞书私聊 -> dsh-lark-bridge -> DSH Session <-> DSH Web UI
      ^                              |
-     +---------- 飞书回复 ----------+
+     +------ 飞书回复 / Web 同步 ----+
 ```
 
 ## 你会得到什么
@@ -27,6 +27,8 @@ export LARK_APP_SECRET=xxx
 - 每个飞书话题对应一个稳定的 DSH Session；同一私聊中的不同话题相互隔离。
 - 飞书 Session 和浏览器 Session 使用同一个 DSH Host；Web UI 可以看到完整对话、
   推理过程、工具调用和最终回复。
+- 在 Web UI 中继续飞书 Session 时，Web 用户消息和最终回复会同步显示在原飞书话题中；
+  Web 用户消息带有“来自 Web”标识，飞书入站轮次不会重复显示。
 - 默认使用 `dsh-lark-safe` preset，只允许读取和搜索 Workspace 文件。
 - 插件负责飞书鉴权、WebSocket 自动重连、事件规范化、幂等回复和优雅退出。
 - COT 不包含模型隐藏推理、工具参数或文件内容；COT/表情接口不可用时会降级为普通文本回复。
@@ -142,6 +144,8 @@ DSH 插件都已就绪。然后打开 DSH 输出的 Web 地址，通常是
 5. DSH 完成 Turn 后，最终答案回复在同一话题下。
 6. 在该话题内继续发送消息，会复用同一个 DSH Session；另起一条私聊消息则创建
    新话题和新 Session。
+7. 在 Web UI 中打开该 Session 并继续发送消息，原飞书话题会依次显示带“来自 Web”
+   标识的用户消息和该轮最终回复。
 
 当前插件只接收 `p2p` 私聊中的 `text` 和 `post` 消息；群聊和其他消息类型会被
 忽略。
@@ -167,7 +171,7 @@ Agent 知道 DSH Session 的准确 Workspace 路径；询问“你的工作区�
 | `DSH_LARK_ALLOWED_SENDERS` | `string` | 空，允许所有可访问应用的用户 | `ou_a,ou_b` | 逗号分隔的飞书 sender open ID allowlist |
 | `DSH_LARK_MAX_CONCURRENT_TOPICS` | `number` | `4` | `8` | 不同话题可同时运行的最大 DSH Turn 数；同一话题始终串行 |
 | `DSH_LARK_MAX_PENDING_MESSAGES` | `number` | `256` | `128` | 传输和调度层允许保留的入站消息上限；超限时拒绝并等待上游重投 |
-| `DSH_LARK_EVENT_STATE_PATH` | `string` | `$DSH_HOME/.dsh-lark-bridge/events.json` | `/secure/state/events.json` | admission checkpoint 文件；以 `0600` 原子写入 |
+| `DSH_LARK_EVENT_STATE_PATH` | `string` | `$DSH_HOME/.dsh-lark-bridge/events.json` | `/secure/state/events.json` | admission checkpoint 与飞书话题关联文件；以 `0600` 原子写入 |
 | `DSH_LARK_EVENT_RETENTION_MS` | `number` | `604800000`（7 天） | `86400000` | 已回复事件去重记录的保留时间 |
 
 例如，显式指定 Workspace：

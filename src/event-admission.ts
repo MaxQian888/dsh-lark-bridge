@@ -18,6 +18,11 @@ export interface PromptCheckpoint {
   beforeSeq: number;
 }
 
+export interface LarkTopicLink {
+  sessionId: string;
+  topicRootMessageId: string;
+}
+
 export type AdmissionDecision =
   | { kind: "start" }
   | { kind: "resume"; checkpoint: PromptCheckpoint }
@@ -31,6 +36,7 @@ interface AdmissionRecord {
   status: "admitted" | "prompted" | "replied";
   updatedAt: number;
   checkpoint?: PromptCheckpoint;
+  topicLink?: LarkTopicLink;
 }
 
 interface AdmissionSnapshot {
@@ -112,6 +118,27 @@ function parseSnapshot(value: unknown): AdmissionSnapshot {
       }
       checkpoint = { sessionId: input.sessionId, beforeSeq: input.beforeSeq };
     }
+    let topicLink: LarkTopicLink | undefined;
+    if (record.topicLink !== undefined) {
+      if (
+        typeof record.topicLink !== "object" ||
+        record.topicLink === null ||
+        Array.isArray(record.topicLink)
+      ) {
+        throw new Error("event admission topic link must be an object");
+      }
+      const input = record.topicLink as Record<string, unknown>;
+      if (
+        typeof input.sessionId !== "string" ||
+        typeof input.topicRootMessageId !== "string"
+      ) {
+        throw new Error("event admission topic link is incomplete");
+      }
+      topicLink = {
+        sessionId: input.sessionId,
+        topicRootMessageId: input.topicRootMessageId,
+      };
+    }
     return {
       eventId: record.eventId,
       senderId: record.senderId,
@@ -119,6 +146,7 @@ function parseSnapshot(value: unknown): AdmissionSnapshot {
       status: record.status as AdmissionRecord["status"],
       updatedAt: record.updatedAt,
       ...(checkpoint === undefined ? {} : { checkpoint }),
+      ...(topicLink === undefined ? {} : { topicLink }),
     };
   });
   return { version: 1, records };
@@ -360,6 +388,7 @@ export class EventAdmissionStore {
   admit(input: {
     eventId: string;
     senderId: string;
+    topicLink?: LarkTopicLink;
   }): Promise<AdmissionDecision> {
     return this.mutate<AdmissionDecision>(async (records) => {
       if (
@@ -373,6 +402,13 @@ export class EventAdmissionStore {
         existing?.status === "replied" ||
         existing?.ownerId === this.ownerId
       ) {
+        if (existing !== undefined && input.topicLink !== undefined) {
+          records.set(input.eventId, {
+            ...existing,
+            topicLink: input.topicLink,
+          });
+          return { changed: true, value: { kind: "duplicate" } };
+        }
         return { value: { kind: "duplicate" } };
       }
       if (
@@ -383,6 +419,9 @@ export class EventAdmissionStore {
           ...existing,
           ownerId: this.ownerId,
           updatedAt: this.now(),
+          ...(input.topicLink === undefined
+            ? {}
+            : { topicLink: input.topicLink }),
         });
         return {
           changed: true,
@@ -395,8 +434,24 @@ export class EventAdmissionStore {
         ownerId: this.ownerId,
         status: "admitted",
         updatedAt: this.now(),
+        ...(input.topicLink === undefined ? {} : { topicLink: input.topicLink }),
       });
       return { changed: true, value: { kind: "start" } };
+    });
+  }
+
+  topicLinks(): Promise<LarkTopicLink[]> {
+    return this.mutate(async (records) => {
+      const links = new Map<string, LarkTopicLink>();
+      for (const record of [...records.values()].sort(
+        (left, right) => right.updatedAt - left.updatedAt,
+      )) {
+        const link = record.topicLink;
+        if (link !== undefined && !links.has(link.sessionId)) {
+          links.set(link.sessionId, link);
+        }
+      }
+      return { value: [...links.values()] };
     });
   }
 

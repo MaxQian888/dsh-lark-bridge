@@ -13,6 +13,7 @@ export interface DshTopicTurnInput {
   text: string;
   checkpoint?: PromptCheckpoint;
   signal?: AbortSignal;
+  onPromptRequest?(rpcId: string): void;
   onPrompted?(checkpoint: PromptCheckpoint): void | Promise<void>;
   onEvents?(events: SessionEvent[]): void | Promise<void>;
 }
@@ -39,7 +40,11 @@ export class DshTopicTurn {
       created = session.created;
       beforeSeq = await this.client.lastSeq(input.sessionId);
       input.signal?.throwIfAborted();
-      await this.client.prompt(input.sessionId, input.text);
+      await this.client.prompt(
+        input.sessionId,
+        input.text,
+        input.onPromptRequest,
+      );
       await input.onPrompted?.({ sessionId: input.sessionId, beforeSeq });
     }
 

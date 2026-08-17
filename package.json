@@ -49,6 +49,7 @@
     "dist/src/plugin-cli.*",
     "dist/src/preset-installer.*",
     "dist/src/topic-scheduler.*",
+    "dist/src/web-message-sync.*",
     "dist/src/plugins/read-only-files.*",
     "config/agent-presets/lark-safe",
     "dsh.bundle.patch.yml",

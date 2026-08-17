@@ -51,6 +51,10 @@ class ConcurrentDshClient implements DshBridgeClient {
     return Promise.resolve({ sessionId, created: false });
   }
 
+  history(): Promise<[]> {
+    return Promise.resolve([]);
+  }
+
   lastSeq(): Promise<number> {
     return Promise.resolve(0);
   }

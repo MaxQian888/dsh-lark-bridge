@@ -53,6 +53,27 @@ test("a new process resumes a prompted event without prompting twice", async () 
   assert.deepEqual(await third.admit(event), { kind: "duplicate" });
 });
 
+test("a new bridge process restores Feishu topic links", async () => {
+  const adapter = new MemoryAdmissionAdapter();
+  const first = new EventAdmissionStore(adapter, { ownerId: "process-1" });
+  await first.admit({
+    eventId: "event-1",
+    senderId: "user-1",
+    topicLink: {
+      sessionId: "session-1",
+      topicRootMessageId: "root-message",
+    },
+  });
+  await first.markReplied("event-1");
+
+  const restarted = new EventAdmissionStore(adapter, {
+    ownerId: "process-2",
+  });
+  assert.deepEqual(await restarted.topicLinks(), [
+    { sessionId: "session-1", topicRootMessageId: "root-message" },
+  ]);
+});
+
 test("a prompted failure can resume in the same process", async () => {
   const store = new EventAdmissionStore(new MemoryAdmissionAdapter(), {
     ownerId: "process-1",

@@ -4,6 +4,7 @@ import { DshTopicTurn } from "./dsh-topic-turn.js";
 import {
   type AdmissionDecision,
   EventAdmissionStore,
+  type LarkTopicLink,
   MemoryAdmissionAdapter,
 } from "./event-admission.js";
 import {
@@ -14,6 +15,7 @@ import {
 import type { SemanticLogger } from "./logger.js";
 import { LARK_PRESET, WORKSPACE_PATH } from "./config.js";
 import { TopicScheduler } from "./topic-scheduler.js";
+import { WebMessageSync } from "./web-message-sync.js";
 
 function sessionTitle(message: LarkMessage): string {
   const preview = message.content.replace(/\s+/g, " ").trim().slice(0, 24);
@@ -189,6 +191,33 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
   );
   const quota = new CompletionQuota(options.maxEvents ?? 0);
   const turn = new DshTopicTurn(options.client);
+  const webSync = new WebMessageSync(
+    options.client,
+    options.lark,
+    logger,
+  );
+  let storedTopicLinks: LarkTopicLink[] = [];
+  try {
+    storedTopicLinks = await admission.topicLinks();
+  } catch (error) {
+    logger.warn("web_sync_links_load_failed", {
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+  }
+  for (const link of storedTopicLinks) {
+    try {
+      webSync.link(
+        link.sessionId,
+        link.topicRootMessageId,
+        await options.client.lastSeq(link.sessionId),
+      );
+    } catch (error) {
+      logger.warn("web_sync_link_restore_failed", {
+        sessionId: link.sessionId,
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+    }
+  }
   let handled = 0;
   const shutdown = new AbortController();
   const stop = () => {
@@ -201,6 +230,7 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
   const timeoutMs = timeoutMilliseconds(options.timeout);
   const timeout =
     timeoutMs === undefined ? undefined : setTimeout(stop, timeoutMs);
+  const webSyncTask = webSync.run(shutdown.signal);
 
   try {
     await options.lark.consume({
@@ -230,6 +260,10 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
           decision = await admission.admit({
             eventId: message.eventId,
             senderId: message.senderId,
+            topicLink: {
+              sessionId,
+              topicRootMessageId: topicRoot,
+            },
           });
         } catch (error) {
           logger.error("event_admission_failed", {
@@ -246,6 +280,10 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
               decision.kind === "rejected" ? decision.reason : "duplicate",
           });
           return;
+        }
+
+        if (decision.kind === "resume") {
+          webSync.link(sessionId, topicRoot, decision.checkpoint.beforeSeq);
         }
 
         let permitAcquired = false;
@@ -327,11 +365,15 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
                 title: sessionTitle(message),
                 text: message.content,
                 signal,
+                onPromptRequest: (rpcId) => {
+                  webSync.markBridgePrompt(rpcId);
+                },
                 ...(decision.kind === "resume"
                   ? { checkpoint: decision.checkpoint }
                   : {}),
                 onPrompted: async (checkpoint) => {
                   await admission.markPrompted(message.eventId, checkpoint);
+                  webSync.link(sessionId, topicRoot, checkpoint.beforeSeq);
                   logger.info("event_admitted", {
                     eventId: message.eventId,
                     sessionId,
@@ -479,6 +521,8 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
       },
     });
   } finally {
+    stop();
+    await webSyncTask;
     quota.close(new Error("bridge stopped"));
     scheduler.close();
     await scheduler.drain();

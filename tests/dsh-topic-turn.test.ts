@@ -30,13 +30,22 @@ class FakeDshClient implements DshBridgeClient {
     return Promise.resolve({ sessionId, created: true });
   }
 
+  history(): Promise<[]> {
+    return Promise.resolve([]);
+  }
+
   lastSeq(sessionId: string): Promise<number> {
     this.calls.push(`last:${sessionId}`);
     return Promise.resolve(4);
   }
 
-  prompt(sessionId: string, text: string): Promise<void> {
+  prompt(
+    sessionId: string,
+    text: string,
+    onRequest?: (rpcId: string) => void,
+  ): Promise<void> {
     this.calls.push(`prompt:${sessionId}:${text}`);
+    onRequest?.("rpc-1");
     return Promise.resolve();
   }
 
@@ -63,6 +72,7 @@ class FakeDshClient implements DshBridgeClient {
 test("DSH topic turn hides provisioning, prompt, wait, and rename ordering", async () => {
   const client = new FakeDshClient();
   const checkpoints: unknown[] = [];
+  const promptRequests: string[] = [];
   const turn = new DshTopicTurn(client);
 
   assert.deepEqual(
@@ -72,6 +82,9 @@ test("DSH topic turn hides provisioning, prompt, wait, and rename ordering", asy
       agentPreset: "safe",
       title: "Feishu topic",
       text: "question",
+      onPromptRequest: (rpcId) => {
+        promptRequests.push(rpcId);
+      },
       onPrompted: (checkpoint) => {
         checkpoints.push(checkpoint);
       },
@@ -79,6 +92,7 @@ test("DSH topic turn hides provisioning, prompt, wait, and rename ordering", asy
     { finalResponse: "answer", finishReason: "completed", turnEndSeq: 8 },
   );
   assert.deepEqual(checkpoints, [{ sessionId: "session-1", beforeSeq: 4 }]);
+  assert.deepEqual(promptRequests, ["rpc-1"]);
   assert.deepEqual(client.calls, [
     "ensure:session-1",
     "last:session-1",
