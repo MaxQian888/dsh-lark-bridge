@@ -50,9 +50,11 @@ export async function apply(ctx: Context, input: Config): Promise<void> {
     workspaceTitle: input.workspaceTitle?.trim() || undefined,
     agentPreset: input.agentPreset ?? BUNDLED_PRESET_ID,
     installBundledPreset: input.installBundledPreset ?? true,
-    allowedSenderIds: input.allowedSenderIds
-      ?.map((senderId) => senderId.trim())
-      .filter(Boolean),
+    allowedSenderIds: Array.isArray(input.allowedSenderIds)
+      ? input.allowedSenderIds
+          .map((senderId) => senderId.trim())
+          .filter(Boolean)
+      : undefined,
     maxConcurrentTopics: input.maxConcurrentTopics ?? 4,
     maxPendingMessages: input.maxPendingMessages ?? 256,
     eventStatePath: input.eventStatePath?.trim() || defaultAdmissionStatePath(),
