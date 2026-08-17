@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  LarkUserAuthorizationUnavailableError,
   LarkSdkTransport,
   normalizeLarkMessageEnvelope,
   replyIdempotencyKey,
@@ -27,7 +28,7 @@ function fakeApiClient(
       uuid?: string;
       reply_in_thread?: boolean;
     };
-  }) => void = () => undefined,
+  }, options?: unknown) => void = () => undefined,
 ): LarkApiClientPort {
   return {
     request: async (input) =>
@@ -41,8 +42,8 @@ function fakeApiClient(
           : { code: 0 },
     im: {
       message: {
-        reply: async (input) => {
-          onReply(input);
+        reply: async (input, options) => {
+          onReply(input, options);
           return {
             code: 0,
             data: { message_id: "om_reply", thread_id: "omt_thread" },
@@ -108,6 +109,43 @@ test("normalizes the Feishu SDK message envelope", async () => {
   assert.equal(message.rootMessageId, "om_root");
   assert.equal(message.threadId, "omt_1");
   assert.equal(topicRootMessageId(message), "om_root");
+});
+
+test("normalizes and strips a bot mention from a group message", async () => {
+  const message = await normalizeLarkMessageEnvelope(
+    {
+      header: {
+        event_id: "evt_group",
+        event_type: "im.message.receive_v1",
+      },
+      event: {
+        sender: {
+          sender_id: { open_id: "ou_sender" },
+          sender_type: "user",
+        },
+        message: {
+          message_id: "om_group",
+          chat_id: "oc_group",
+          chat_type: "group",
+          message_type: "text",
+          content: JSON.stringify({ text: "@_user_1 help me" }),
+          mentions: [
+            {
+              key: "@_user_1",
+              id: { open_id: "ou_bot" },
+              name: "DSH Bot",
+            },
+          ],
+          create_time: "1",
+        },
+      },
+    },
+    { openId: "ou_bot", name: "DSH Bot" },
+  );
+
+  assert.equal(message.chatType, "group");
+  assert.equal(message.mentionedBot, true);
+  assert.equal(message.content, "help me");
 });
 
 test("rejects an incomplete SDK event envelope", async () => {
@@ -250,6 +288,86 @@ test("replies with a Markdown post in the topic rooted at the inbound message", 
       reply_in_thread: true,
     },
   });
+});
+
+test("replies as the authorized user and rejects when authorization is absent", async () => {
+  let requestOptions: unknown;
+  const client = fakeApiClient((_input, options) => {
+    requestOptions = options;
+  });
+  const transport = new LarkSdkTransport({
+    credentials: { appId: "cli_test", appSecret: "secret" },
+    wsClient: {
+      start: async () => undefined,
+      close: () => undefined,
+      getConnectionStatus: () => ({ state: "connected" }),
+    },
+    apiClient: client,
+    userAuth: { accessToken: async () => "user-token" },
+  });
+
+  assert.deepEqual(
+    await transport.replyToMessageAsUser(
+      { sourceMessageId: "web-user-1", topicRootMessageId: "om_root" },
+      "Web input",
+    ),
+    { messageId: "om_reply", threadId: "omt_thread" },
+  );
+  const larkOptions = (requestOptions as { lark: Record<symbol, string> }).lark;
+  assert.deepEqual(Object.getOwnPropertySymbols(larkOptions).map(String), [
+    "Symbol(with-user-access-token)",
+  ]);
+  assert.deepEqual(Object.values(larkOptions), []);
+  assert.equal(larkOptions[Object.getOwnPropertySymbols(larkOptions)[0]!], "user-token");
+
+  const unauthorized = new LarkSdkTransport({
+    credentials: { appId: "cli_test", appSecret: "secret" },
+    wsClient: {
+      start: async () => undefined,
+      close: () => undefined,
+      getConnectionStatus: () => ({ state: "connected" }),
+    },
+    apiClient: client,
+    userAuth: { accessToken: async () => undefined },
+  });
+  await assert.rejects(
+    unauthorized.replyToMessageAsUser(
+      { sourceMessageId: "web-user-2", topicRootMessageId: "om_root" },
+      "Web input",
+    ),
+    LarkUserAuthorizationUnavailableError,
+  );
+
+  let invalidated = false;
+  const rejectedClient = fakeApiClient();
+  rejectedClient.im.message.reply = async () => ({
+    code: 99991663,
+    msg: "user access token is invalid",
+  });
+  const rejectedUserAuth = {
+    accessToken: async () => "expired-user-token",
+    invalidate: async () => {
+      invalidated = true;
+    },
+  };
+  const rejected = new LarkSdkTransport({
+    credentials: { appId: "cli_test", appSecret: "secret" },
+    wsClient: {
+      start: async () => undefined,
+      close: () => undefined,
+      getConnectionStatus: () => ({ state: "connected" }),
+    },
+    apiClient: rejectedClient,
+    userAuth: rejectedUserAuth,
+  });
+  await assert.rejects(
+    rejected.replyToMessageAsUser(
+      { sourceMessageId: "web-user-3", topicRootMessageId: "om_root" },
+      "Web input",
+    ),
+    LarkUserAuthorizationUnavailableError,
+  );
+  assert.equal(invalidated, true);
 });
 
 test("uses a top-level inbound message as a new topic root", () => {

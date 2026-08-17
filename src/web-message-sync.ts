@@ -5,7 +5,10 @@ import {
 } from "./dsh-client.js";
 import { DshCotProjection } from "./cot.js";
 import type { BridgeLogger } from "./bridge.js";
-import type { LarkMessageTransport } from "./lark.js";
+import {
+  type LarkMessageTransport,
+  type LarkReplyResult,
+} from "./lark.js";
 
 interface LinkedTopic {
   topicRootMessageId: string;
@@ -99,6 +102,14 @@ function cotOutcome(
   return INTERRUPTED_REASON_KINDS.has(String(reason?.kind))
     ? "interrupted"
     : "error";
+}
+
+function quotedWebInput(text: string): string {
+  const quoted = (text || "[空消息]")
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return `**【来自用户在 Web 上的输入】**\n\n${quoted}`;
 }
 
 function abortReason(signal: AbortSignal): unknown {
@@ -220,17 +231,33 @@ export class WebMessageSync {
         return;
       }
       turn.hasWebPrompt = true;
-      const mirrored = await this.lark.replyToMessage(
-        {
-          sourceMessageId: `web-user:${sessionId}:${event.seq}`,
-          topicRootMessageId: topic.topicRootMessageId,
-        },
-        `**来自 Web**\n\n${prompt.text || "[空消息]"}`,
-      );
+      const route = {
+        sourceMessageId: `web-user:${sessionId}:${event.seq}`,
+        topicRootMessageId: topic.topicRootMessageId,
+      };
+      let mirrored: LarkReplyResult | undefined;
+      let identity: "bot" | "user" = "bot";
+      try {
+        mirrored = await this.lark.replyToMessageAsUser?.(route, prompt.text);
+        if (mirrored !== undefined) identity = "user";
+      } catch (error) {
+        this.logger.info("web_user_authorization_unavailable", {
+          sessionId,
+          eventSeq: event.seq,
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+      }
+      if (mirrored === undefined) {
+        mirrored = await this.lark.replyToMessage(
+          route,
+          quotedWebInput(prompt.text),
+        );
+      }
       this.logger.info("web_message_mirrored", {
         sessionId,
         eventSeq: event.seq,
         role: "user",
+        identity,
       });
       if (!turn.hasBridgePrompt && topic.chatId !== undefined) {
         try {

@@ -44,6 +44,9 @@
     "dist/src/dsh-topic-turn.*",
     "dist/src/event-admission.*",
     "dist/src/lark.*",
+    "dist/src/lark-markdown.*",
+    "dist/src/lark-user-auth.*",
+    "dist/src/lark-user-auth-web.*",
     "dist/src/logger.*",
     "dist/src/plugin.*",
     "dist/src/plugin-cli.*",
@@ -82,6 +85,7 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.1",
     "@larksuiteoapi/node-sdk": "1.73.0",
+    "beautiful-mermaid": "1.1.3",
     "dotenv": "^17.2.1"
   },
   "devDependencies": {
@@ -89,6 +93,7 @@
     "@deepseek-ai/dsh": "0.1.0-rc.6",
     "@deepseek-ai/dsh-fs": "0.1.0-rc.6",
     "@deepseek-ai/dsh-host-apiproxy": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-host-webserver": "0.1.0-rc.6",
     "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
     "@deepseek-ai/dsh-tool-fs-search": "0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6",

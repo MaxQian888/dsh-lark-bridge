@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-host-apiproxy";
+import type {} from "@deepseek-ai/dsh-host-webserver";
 import z from "@deepseek-ai/schemastery";
 import { ApiProxyDshClient } from "./api-proxy-client.js";
 import { runBridge } from "./bridge.js";
@@ -10,12 +11,22 @@ import {
   EventAdmissionStore,
   JsonFileAdmissionAdapter,
 } from "./event-admission.js";
-import { LarkSdkTransport, resolveLarkCredentials } from "./lark.js";
+import {
+  createLarkSdkApiClient,
+  LarkSdkTransport,
+  resolveLarkCredentials,
+} from "./lark.js";
+import {
+  defaultLarkUserAuthStatePath,
+  JsonFileLarkUserAuthStore,
+  LarkUserAuth,
+} from "./lark-user-auth.js";
+import { registerLarkUserAuthWeb } from "./lark-user-auth-web.js";
 import type { SemanticLogger } from "./logger.js";
 import { BUNDLED_PRESET_ID, ensureBundledPreset } from "./preset-installer.js";
 
 export const name = "dsh-lark-bridge";
-export const inject = ["apiProxy"];
+export const inject = ["apiProxy", "webServer"];
 
 export interface Config {
   enabled?: boolean;
@@ -28,6 +39,9 @@ export interface Config {
   maxPendingMessages?: number;
   eventStatePath?: string;
   eventRetentionMs?: number;
+  enableUserAuth?: boolean;
+  userAuthStatePath?: string;
+  userAuthRedirectUri?: string;
 }
 
 export const Config: z<Config> = z.object({
@@ -41,6 +55,9 @@ export const Config: z<Config> = z.object({
   maxPendingMessages: z.number().min(1).default(256),
   eventStatePath: z.string(),
   eventRetentionMs: z.number().min(1).default(604_800_000),
+  enableUserAuth: z.boolean().default(true),
+  userAuthStatePath: z.string(),
+  userAuthRedirectUri: z.string(),
 });
 
 export async function apply(ctx: Context, input: Config): Promise<void> {
@@ -59,6 +76,10 @@ export async function apply(ctx: Context, input: Config): Promise<void> {
     maxPendingMessages: input.maxPendingMessages ?? 256,
     eventStatePath: input.eventStatePath?.trim() || defaultAdmissionStatePath(),
     eventRetentionMs: input.eventRetentionMs ?? 604_800_000,
+    enableUserAuth: input.enableUserAuth ?? true,
+    userAuthStatePath:
+      input.userAuthStatePath?.trim() || defaultLarkUserAuthStatePath(),
+    userAuthRedirectUri: input.userAuthRedirectUri?.trim() || undefined,
   };
   const logger = ctx.logger(name);
 
@@ -84,6 +105,29 @@ export async function apply(ctx: Context, input: Config): Promise<void> {
     error: (event, fields) =>
       logger.error("event=%s fields=%s", event, JSON.stringify(fields ?? {})),
   };
+  const apiClient = createLarkSdkApiClient(credentials, semanticLogger);
+  const userAuthEnabled =
+    config.enableUserAuth && ctx.webServer.host === "127.0.0.1";
+  const userAuth = userAuthEnabled
+    ? new LarkUserAuth({
+        appId: credentials.appId,
+        redirectUri:
+          config.userAuthRedirectUri ??
+          `http://127.0.0.1:${ctx.webServer.port}/dsh-lark/auth/callback`,
+        tokenApi: apiClient.accessToken,
+        store: new JsonFileLarkUserAuthStore(config.userAuthStatePath),
+      })
+    : undefined;
+  if (userAuth !== undefined) {
+    ctx.effect(
+      () => registerLarkUserAuthWeb(ctx.webServer, userAuth),
+      "dsh-lark user authorization",
+    );
+  } else if (config.enableUserAuth) {
+    semanticLogger.warn("lark_user_auth_disabled", {
+      reason: "web_host_is_not_loopback",
+    });
+  }
   const admission = new EventAdmissionStore(
     new JsonFileAdmissionAdapter(config.eventStatePath),
     {
@@ -102,6 +146,8 @@ export async function apply(ctx: Context, input: Config): Promise<void> {
         client: new ApiProxyDshClient(ctx.apiProxy),
         lark: new LarkSdkTransport({
           credentials,
+          apiClient,
+          ...(userAuth === undefined ? {} : { userAuth }),
           logger: semanticLogger,
           maxPendingMessages: config.maxPendingMessages,
         }),

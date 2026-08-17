@@ -238,10 +238,10 @@ export async function runBridge(options: BridgeOptions): Promise<number> {
       signal: shutdown.signal,
       ...(options.onReady === undefined ? {} : { onReady: options.onReady }),
       onMessage: async (message) => {
-        if (message.chatType !== "p2p") {
+        if (message.chatType === "group" && message.mentionedBot !== true) {
           logger.info("event_skipped", {
             eventId: message.eventId,
-            reason: "not_p2p",
+            reason: "group_without_bot_mention",
           });
           return;
         }

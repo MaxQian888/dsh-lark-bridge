@@ -4,7 +4,7 @@
 - insert:
     - id: dsh-lark-bridge
       name: '@open-aiden/dsh-lark-bridge'
-      inject: [apiProxy]
+      inject: [apiProxy, webServer]
       config:
         enabled: !!js process.env.DSH_LARK_ENABLED !== '0'
         workspacePath: !!js process.env.DSH_LARK_WORKSPACE || process.cwd()
@@ -16,3 +16,6 @@
         maxPendingMessages: !!js Number(process.env.DSH_LARK_MAX_PENDING_MESSAGES || 256)
         eventStatePath: !!js process.env.DSH_LARK_EVENT_STATE_PATH
         eventRetentionMs: !!js Number(process.env.DSH_LARK_EVENT_RETENTION_MS || 604800000)
+        enableUserAuth: !!js process.env.DSH_LARK_USER_AUTH_ENABLED !== '0'
+        userAuthStatePath: !!js process.env.DSH_LARK_USER_AUTH_STATE_PATH
+        userAuthRedirectUri: !!js process.env.DSH_LARK_USER_AUTH_REDIRECT_URI

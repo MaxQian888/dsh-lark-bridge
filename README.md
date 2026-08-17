@@ -28,7 +28,11 @@ export LARK_APP_SECRET=xxx
 - 飞书 Session 和浏览器 Session 使用同一个 DSH Host；Web UI 可以看到完整对话、
   推理过程、工具调用和最终回复。
 - 在 Web UI 中继续飞书 Session 时，Web 用户消息和最终回复会同步显示在原飞书话题中；
-  Web 用户消息带有“来自 Web”标识，飞书入站轮次不会重复显示。
+  完成用户授权后，Web 输入以本人飞书身份发送；未授权或授权失效时自动降级为
+  “【来自用户在 Web 上的输入】”引用消息。飞书入站轮次不会重复显示。
+- 最终回复使用飞书原生 CommonMark/GFM 富文本展示表格、任务列表和代码块；常见
+  Mermaid 流程图、时序图、状态图、类图、ER 图和 XY 图会本地转换成等宽 Unicode
+  图表，不支持的 Mermaid 类型保留源码并明确标注降级。
 - 默认使用 `dsh-lark-safe` preset，只允许读取和搜索 Workspace 文件。
 - 插件负责飞书鉴权、WebSocket 自动重连、事件规范化、幂等回复和优雅退出。
 - COT 不包含模型隐藏推理、工具参数或文件内容；COT/表情接口不可用时会降级为普通文本回复。
@@ -41,11 +45,24 @@ preview，升级 DSH 后请重新执行本文的验证步骤。
 在飞书开放平台创建企业自建应用，然后完成以下配置：
 
 1. 开启机器人能力。
-2. 为应用开通 `im:message.p2p_msg:readonly`、`im:message:send_as_bot`，以及
+2. 为应用开通 `im:message.p2p_msg:readonly`、
+   `im:message.group_at_msg:readonly`、`im:message:send_as_bot`，以及
    添加和删除消息表情回复所需的权限。
+   若要让 Web 输入显示为用户本人，还需开通 `im:message` 和
+   `im:message.send_as_user`。插件在用户 OAuth 时还会申请 `offline_access`，用于
+   自动刷新用户访问凭证。
 3. 在事件订阅中选择“使用长连接接收事件”，订阅
    `im.message.receive_v1`。
 4. 发布应用版本，并确保当前测试用户可以使用该应用。
+
+用户身份授权还要求在“安全设置”中添加重定向 URL。默认 Web 端口下为：
+
+```text
+http://127.0.0.1:3080/dsh-lark/auth/callback
+```
+
+如果 Web Host 使用其他端口，通过 `DSH_LARK_USER_AUTH_REDIRECT_URI` 显式指定，并在
+飞书开放平台登记完全一致的地址。
 
 从应用的“凭证与基础信息”页面取得 App ID 和 App Secret。不要把 App Secret
 提交到仓库。
@@ -128,7 +145,7 @@ DSH 插件都已就绪。然后打开 DSH 输出的 Web 地址，通常是
 
 ## 4. 从飞书验证
 
-给机器人发送一条私聊，例如：
+给机器人发送一条私聊，或在群聊中明确 `@机器人`，例如：
 
 ```text
 请读取 README.md，总结这个项目，并说明使用了什么工具。
@@ -144,11 +161,13 @@ DSH 插件都已就绪。然后打开 DSH 输出的 Web 地址，通常是
 5. DSH 完成 Turn 后，最终答案回复在同一话题下。
 6. 在该话题内继续发送消息，会复用同一个 DSH Session；另起一条私聊消息则创建
    新话题和新 Session。
-7. 在 Web UI 中打开该 Session 并继续发送消息，原飞书话题会依次显示带“来自 Web”
-   标识的用户消息和该轮最终回复。
+7. 点击 Web 页面右下角的“飞书用户授权”；授权页会显示需要登记的完整回调地址，
+   确认飞书应用安全设置中已有该地址后完成 OAuth 授权。
+8. 在 Web UI 中打开该 Session 并继续发送消息，原飞书话题会以本人身份显示用户
+   输入；如果授权尚未完成或已经失效，则显示机器人发送的引用格式，并继续正常执行。
 
-当前插件只接收 `p2p` 私聊中的 `text` 和 `post` 消息；群聊和其他消息类型会被
-忽略。
+当前插件接收私聊中的 `text` 和 `post` 消息；群聊只处理明确 `@机器人` 的这两类
+消息，未提及机器人的群消息和其他消息类型会被忽略。
 
 飞书原生 COT 需要支持该能力的租户和客户端版本；当前 ByteDance 租户要求桌面端
 不低于 7.70、移动端不低于 7.74。若 COT 或表情权限未开通，启动日志会记录失败，
@@ -173,6 +192,9 @@ Agent 知道 DSH Session 的准确 Workspace 路径；询问“你的工作区�
 | `DSH_LARK_MAX_PENDING_MESSAGES` | `number` | `256` | `128` | 传输和调度层允许保留的入站消息上限；超限时拒绝并等待上游重投 |
 | `DSH_LARK_EVENT_STATE_PATH` | `string` | `$DSH_HOME/.dsh-lark-bridge/events.json` | `/secure/state/events.json` | admission checkpoint 与飞书话题关联文件；以 `0600` 原子写入 |
 | `DSH_LARK_EVENT_RETENTION_MS` | `number` | `604800000`（7 天） | `86400000` | 已回复事件去重记录的保留时间 |
+| `DSH_LARK_USER_AUTH_ENABLED` | `string` | `1` | `0` | 设为 `0` 时关闭 Web 用户身份授权，并始终使用引用格式降级 |
+| `DSH_LARK_USER_AUTH_STATE_PATH` | `string` | `$DSH_HOME/dsh-lark-bridge/user-auth.json` | `/secure/state/user-auth.json` | 用户 OAuth Token 状态文件；以 `0600` 原子写入并自动刷新 |
+| `DSH_LARK_USER_AUTH_REDIRECT_URI` | `string` | 当前回环 Web Host 的 `/dsh-lark/auth/callback` | `http://127.0.0.1:3080/dsh-lark/auth/callback` | 必须与飞书开放平台登记的重定向 URL 完全一致 |
 
 例如，显式指定 Workspace：
 
