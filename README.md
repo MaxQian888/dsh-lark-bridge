@@ -31,8 +31,8 @@ export LARK_APP_SECRET=xxx
   完成用户授权后，Web 输入以本人飞书身份发送；未授权或授权失效时自动降级为
   “【来自用户在 Web 上的输入】”引用消息。飞书入站轮次不会重复显示。
 - 最终回复使用飞书原生 CommonMark/GFM 富文本展示表格、任务列表和代码块；常见
-  Mermaid 流程图、时序图、状态图、类图、ER 图和 XY 图会本地转换成等宽 Unicode
-  图表，不支持的 Mermaid 类型保留源码并明确标注降级。
+  Mermaid 流程图、时序图、状态图、类图、ER 图和 XY 图会在本地渲染为 PNG 并
+  嵌入飞书富文本，不支持的类型或图片上传失败时保留文本预览或源码。
 - 默认使用 `dsh-lark-safe` preset，只允许读取和搜索 Workspace 文件。
 - 插件负责飞书鉴权、WebSocket 自动重连、事件规范化、幂等回复和优雅退出。
 - COT 不包含模型隐藏推理、工具参数或文件内容；COT/表情接口不可用时会降级为普通文本回复。
@@ -46,7 +46,7 @@ preview，升级 DSH 后请重新执行本文的验证步骤。
 
 1. 开启机器人能力。
 2. 为应用开通 `im:message.p2p_msg:readonly`、
-   `im:message.group_at_msg:readonly`、`im:message:send_as_bot`，以及
+   `im:message.group_at_msg:readonly`、`im:message:send_as_bot`、`im:resource`，以及
    添加和删除消息表情回复所需的权限。
    若要让 Web 输入显示为用户本人，还需开通 `im:message` 和
    `im:message.send_as_user`。插件在用户 OAuth 时还会申请 `offline_access`，用于

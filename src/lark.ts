@@ -90,6 +90,11 @@ export interface LarkApiClientPort {
     data?: Record<string, unknown>;
   }): Promise<unknown>;
   im: {
+    image?: {
+      create(input: {
+        data: { image_type: "message"; image: Buffer };
+      }): Promise<{ image_key?: string | undefined } | null>;
+    };
     message: {
       reply(input: {
         path: { message_id: string };
@@ -316,14 +321,14 @@ export function replyIdempotencyKey(messageId: string): string {
   return `dsh-${digest}`;
 }
 
-function messageReplyInput(route: LarkReplyRoute, text: string) {
+function messageReplyInput(route: LarkReplyRoute, markdown: string) {
   return {
     path: { message_id: route.topicRootMessageId },
     data: {
       msg_type: "post",
       content: JSON.stringify({
         zh_cn: {
-          content: [[{ tag: "md", text: renderLarkMarkdown(text) }]],
+          content: [[{ tag: "md", text: markdown }]],
         },
       }),
       uuid: replyIdempotencyKey(route.sourceMessageId),
@@ -455,7 +460,7 @@ export class LarkSdkTransport implements LarkMessageTransport {
     text: string,
   ): Promise<LarkReplyResult> {
     const response = await this.apiClient.im.message.reply(
-      messageReplyInput(route, text),
+      messageReplyInput(route, await this.renderReplyMarkdown(text)),
     );
     return replyResult(response, "message");
   }
@@ -472,7 +477,7 @@ export class LarkSdkTransport implements LarkMessageTransport {
     }
     if (!accessToken) throw new LarkUserAuthorizationUnavailableError();
     const response = await this.apiClient.im.message.reply(
-      messageReplyInput(route, text),
+      messageReplyInput(route, await this.renderReplyMarkdown(text)),
       withUserAccessToken(accessToken),
     );
     if (response.code !== undefined && response.code !== 0) {
@@ -518,6 +523,17 @@ export class LarkSdkTransport implements LarkMessageTransport {
     replyInThread?: boolean;
   }): Promise<CotMessage> {
     return new LarkCotGateway(this.apiClient).create(input);
+  }
+
+  private renderReplyMarkdown(text: string): Promise<string> {
+    return renderLarkMarkdown(text, async (png) => {
+      const response = await this.apiClient.im.image?.create({
+        data: { image_type: "message", image: png },
+      });
+      const imageKey = response?.image_key?.trim();
+      if (!imageKey) throw new Error("Lark image upload returned no image_key");
+      return imageKey;
+    });
   }
 
   private enqueue(raw: unknown): Promise<void> {

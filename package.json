@@ -85,6 +85,7 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.1",
     "@larksuiteoapi/node-sdk": "1.73.0",
+    "@resvg/resvg-js": "2.6.2",
     "beautiful-mermaid": "1.1.3",
     "dotenv": "^17.2.1"
   },

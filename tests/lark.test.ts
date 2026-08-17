@@ -290,6 +290,40 @@ test("replies with a Markdown post in the topic rooted at the inbound message", 
   });
 });
 
+test("uploads a rendered Mermaid PNG and embeds its image key", async () => {
+  let replyContent = "";
+  let uploadedPng: Buffer | undefined;
+  const client = fakeApiClient((input) => {
+    replyContent = input.data.content;
+  });
+  client.im.image = {
+    create: async (input) => {
+      uploadedPng = input.data.image;
+      return { image_key: "img_v3_rendered" };
+    },
+  };
+  const transport = new LarkSdkTransport({
+    credentials: { appId: "cli_test", appSecret: "secret" },
+    wsClient: {
+      start: async () => undefined,
+      close: () => undefined,
+      getConnectionStatus: () => ({ state: "connected" }),
+    },
+    apiClient: client,
+  });
+
+  await transport.replyToMessage(
+    { sourceMessageId: "om_diagram", topicRootMessageId: "om_root" },
+    "```mermaid\ngraph LR\nWeb --> Feishu\n```",
+  );
+
+  assert.deepEqual(
+    uploadedPng?.subarray(0, 8),
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+  );
+  assert.match(replyContent, /!\[Mermaid 图表\]\(img_v3_rendered\)/);
+});
+
 test("replies as the authorized user and rejects when authorization is absent", async () => {
   let requestOptions: unknown;
   const client = fakeApiClient((_input, options) => {
