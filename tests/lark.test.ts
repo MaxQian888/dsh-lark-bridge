@@ -10,6 +10,14 @@ import {
   type LarkWsClientPort,
 } from "../src/lark.js";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 function fakeApiClient(
   onReply: (input: {
     path: { message_id: string };
@@ -163,6 +171,35 @@ test("force-closes when SDK readiness fails", async () => {
   assert.deepEqual(closeInput, { force: true });
 });
 
+test("surfaces a terminal SDK failure after readiness", async () => {
+  let state = "connected";
+  let closeInput: { force?: boolean } | undefined;
+  const wsClient: LarkWsClientPort = {
+    start: async () => undefined,
+    close: (input) => {
+      closeInput = input;
+    },
+    getConnectionStatus: () => ({ state }),
+  };
+  const transport = new LarkSdkTransport({
+    credentials: { appId: "cli_test", appSecret: "secret" },
+    wsClient,
+    apiClient: fakeApiClient(),
+    readinessPollIntervalMs: 1,
+  });
+
+  await assert.rejects(
+    transport.consume({
+      onReady: () => {
+        state = "failed";
+      },
+      onMessage: async () => undefined,
+    }),
+    /WebSocket connection failed after readiness/,
+  );
+  assert.deepEqual(closeInput, { force: true });
+});
+
 test("replies in the topic rooted at the inbound message", async () => {
   let replyInput:
     | {
@@ -253,6 +290,137 @@ test("adds and removes the exact source-message reaction", async () => {
   assert.deepEqual(deleteInputs, [
     {
       path: { message_id: "om_source", reaction_id: "reaction_get" },
+    },
+  ]);
+});
+
+test("transport dispatches independent inbound messages concurrently and drains them", async () => {
+  const wsClient: LarkWsClientPort = {
+    start: async () => undefined,
+    close: () => undefined,
+    getConnectionStatus: () => ({ state: "connected" }),
+  };
+  const transport = new LarkSdkTransport({
+    credentials: { appId: "cli_test", appSecret: "secret" },
+    wsClient,
+    apiClient: fakeApiClient(),
+  });
+  const shutdown = new AbortController();
+  let ready!: () => void;
+  const readyPromise = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  let active = 0;
+  let peak = 0;
+  const consuming = transport.consume({
+    signal: shutdown.signal,
+    onReady: ready,
+    onMessage: async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+    },
+  });
+  await readyPromise;
+  const envelope = (eventId: string, messageId: string) => ({
+    schema: "2.0",
+    header: { event_id: eventId, event_type: "im.message.receive_v1" },
+    event: {
+      sender: {
+        sender_id: { open_id: "ou_sender" },
+        sender_type: "user",
+      },
+      message: {
+        message_id: messageId,
+        chat_id: "oc_1",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello" }),
+        create_time: "1",
+      },
+    },
+  });
+
+  await Promise.all([
+    transport.eventDispatcher.invoke(envelope("evt_1", "om_1"), {
+      needCheck: false,
+    }),
+    transport.eventDispatcher.invoke(envelope("evt_2", "om_2"), {
+      needCheck: false,
+    }),
+  ]);
+  shutdown.abort();
+  await consuming;
+
+  assert.equal(peak, 2);
+});
+
+test("transport bounds pending inbound message work", async () => {
+  const warnings: Array<{ event: string; fields?: Record<string, unknown> }> =
+    [];
+  const transport = new LarkSdkTransport({
+    credentials: { appId: "cli_test", appSecret: "secret" },
+    wsClient: {
+      start: async () => undefined,
+      close: () => undefined,
+      getConnectionStatus: () => ({ state: "connected" }),
+    },
+    apiClient: fakeApiClient(),
+    maxPendingMessages: 1,
+    logger: {
+      info: () => undefined,
+      warn: (event, fields) =>
+        warnings.push({ event, ...(fields === undefined ? {} : { fields }) }),
+      error: () => undefined,
+    },
+  });
+  const shutdown = new AbortController();
+  const blocked = deferred<void>();
+  let ready!: () => void;
+  const readyPromise = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const consuming = transport.consume({
+    signal: shutdown.signal,
+    onReady: ready,
+    onMessage: async () => blocked.promise,
+  });
+  await readyPromise;
+  const envelope = (eventId: string) => ({
+    schema: "2.0",
+    header: { event_id: eventId, event_type: "im.message.receive_v1" },
+    event: {
+      sender: { sender_id: { open_id: "ou_sender" }, sender_type: "user" },
+      message: {
+        message_id: `om_${eventId}`,
+        chat_id: "oc_1",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello" }),
+        create_time: "1",
+      },
+    },
+  });
+
+  const first = transport.eventDispatcher.invoke(envelope("evt_1"), {
+    needCheck: false,
+  });
+  await assert.rejects(
+    transport.eventDispatcher.invoke(envelope("evt_2"), {
+      needCheck: false,
+    }),
+    /queue is full/,
+  );
+  blocked.resolve();
+  await first;
+  shutdown.abort();
+  await consuming;
+
+  assert.deepEqual(warnings, [
+    {
+      event: "lark_consumer.backpressure",
+      fields: { maxPendingMessages: 1 },
     },
   ]);
 });

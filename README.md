@@ -164,6 +164,11 @@ Agent 知道 DSH Session 的准确 Workspace 路径；询问“你的工作区�
 | `DSH_LARK_WORKSPACE` | `string` | DSH 启动目录 | `/path/to/project` | 飞书 Session 使用的 Workspace |
 | `DSH_LARK_WORKSPACE_TITLE` | `string` | 保留 DSH 标题 | `MyProject` | 显式覆盖 Web UI 中的 Workspace 名称 |
 | `DSH_LARK_AGENT_PRESET` | `string` | `dsh-lark-safe` | `dsh-lark-safe` | 新建飞书 Session 使用的 Agent preset |
+| `DSH_LARK_ALLOWED_SENDERS` | `string` | 空，允许所有可访问应用的用户 | `ou_a,ou_b` | 逗号分隔的飞书 sender open ID allowlist |
+| `DSH_LARK_MAX_CONCURRENT_TOPICS` | `number` | `4` | `8` | 不同话题可同时运行的最大 DSH Turn 数；同一话题始终串行 |
+| `DSH_LARK_MAX_PENDING_MESSAGES` | `number` | `256` | `128` | 传输和调度层允许保留的入站消息上限；超限时拒绝并等待上游重投 |
+| `DSH_LARK_EVENT_STATE_PATH` | `string` | `$DSH_HOME/.dsh-lark-bridge/events.json` | `/secure/state/events.json` | admission checkpoint 文件；以 `0600` 原子写入 |
+| `DSH_LARK_EVENT_RETENTION_MS` | `number` | `604800000`（7 天） | `86400000` | 已回复事件去重记录的保留时间 |
 
 例如，显式指定 Workspace：
 
@@ -172,6 +177,22 @@ export DSH_LARK_WORKSPACE=/absolute/path/to/project
 export DSH_LARK_WORKSPACE_TITLE=MyProject
 dsh web
 ```
+
+生产使用建议设置 sender allowlist：
+
+```bash
+export DSH_LARK_ALLOWED_SENDERS=ou_trusted_user_1,ou_trusted_user_2
+```
+
+插件按话题调度消息：同一话题的消息按顺序执行，不同话题在
+`DSH_LARK_MAX_CONCURRENT_TOPICS` 上限内并行。关闭插件时，正在运行的 Turn 会收到取消
+信号，排队任务会停止，消费者在退出前等待已启动任务收敛。传输与调度层都会限制待处理
+任务数量，过载时拒绝新增工作而不是无限增长内存。
+
+事件处理采用带持久 checkpoint 的 at-least-once 语义。已回复事件会在七天保留期内
+去重；prompt 后中断的事件会从保存的 Session sequence 继续等待，不会主动再次
+prompt。DSH 当前不接受 prompt idempotency key，因此进程在“prompt 已成功、checkpoint
+尚未写入”的极小窗口崩溃时，仍可能重复 prompt；插件不宣称严格 exactly-once。
 
 ## 写入 `~/.zshrc` 后仍显示 not_in_env
 
@@ -240,7 +261,10 @@ dsh plugin --profile web remove @aiden-ai/dsh-lark-bridge
 - `grep`：在 Workspace 内搜索内容。
 
 它不注册 Shell、文件写入、Skills、Jobs 或子代理。绝对路径和包含 `..` 的搜索
-路径会被拒绝；`.env`、凭证文件、私钥和 VCS 元数据也会被硬阻断。`glob` 必须使用
+路径会被拒绝；`.env`、凭证文件、私钥和 VCS 元数据也会被硬阻断。搜索 adapter 的
+canonical value 还会在 spill 产物生成前按实际返回路径再次过滤，避免 wildcard pattern
+绕过前置检查或把敏感结果写入 spill。
+`glob` 必须使用
 带 `/` 的锚定 pattern 或显式 path，`grep` 必须指定 path 或 include filter，以免
 无意遍历整个大型 Workspace。不要在日志中输出 App Secret，也不要把 DSH Web UI
 直接暴露到公网。
@@ -252,10 +276,12 @@ npm ci
 npm run build
 npm test
 npm pack --dry-run
+npm run verify
 ```
 
 测试使用假的飞书和 DSH 边界，不需要真实 App Secret。提交问题或改动前，请先确保
-构建和测试通过。
+`npm run verify` 通过；它统一执行源码与测试类型检查、行为测试、覆盖率门槛和 package
+内容检查。
 
 ## 支持与贡献
 

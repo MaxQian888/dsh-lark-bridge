@@ -6,13 +6,13 @@ import type {
   RpcResponse,
 } from "@deepseek-ai/dsh-host-apiproxy/api";
 import {
-  completedTurnAfter,
   type CompletedTurn,
   type DshBridgeClient,
   type EnsuredSession,
   type SessionEvent,
   type WaitForTurnOptions,
   type WorkspaceView,
+  waitForCompletedTurn,
 } from "./dsh-client.js";
 
 function request<P>(payload: P): RpcRequest<P> {
@@ -100,10 +100,18 @@ export class ApiProxyDshClient implements DshBridgeClient {
     return { sessionId: created.sessionId, created: true };
   }
 
-  async history(sessionId: string, maxMessages = 1): Promise<SessionEvent[]> {
+  async history(
+    sessionId: string,
+    maxMessages = 1,
+    beforeSeq?: number,
+  ): Promise<SessionEvent[]> {
     const value = await unwrap(
       this.api.sessions.history(
-        request({ sessionId: sessionId as never, maxMessages }),
+        request({
+          sessionId: sessionId as never,
+          maxMessages,
+          ...(beforeSeq === undefined ? {} : { beforeSeq }),
+        }),
       ),
     );
     return value.events.map((entry) => entry.event as SessionEvent);
@@ -140,29 +148,11 @@ export class ApiProxyDshClient implements DshBridgeClient {
     afterSeq: number,
     options: WaitForTurnOptions = {},
   ): Promise<CompletedTurn> {
-    const timeoutMs = options.timeoutMs ?? 300_000;
-    const pollMs = options.pollMs ?? 500;
-    const deadline = Date.now() + timeoutMs;
-    let deliveredSeq = afterSeq;
-    while (Date.now() < deadline) {
-      const events = await this.history(sessionId, 8);
-      const fresh = events.filter((event) => event.seq > deliveredSeq);
-      if (fresh.length > 0) {
-        deliveredSeq = fresh.reduce(
-          (latest, event) => Math.max(latest, event.seq),
-          deliveredSeq,
-        );
-        const presentationEvents = fresh.filter((event) =>
-          new Set(["step/start", "tool/call", "tool/result"]).has(event.type),
-        );
-        if (presentationEvents.length > 0) {
-          await options.onEvents?.(presentationEvents);
-        }
-      }
-      const completed = completedTurnAfter(events, afterSeq);
-      if (completed !== undefined) return completed;
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
-    throw new Error(`DSH session ${sessionId} did not finish within ${timeoutMs}ms`);
+    return waitForCompletedTurn(
+      (id, maxMessages, beforeSeq) => this.history(id, maxMessages, beforeSeq),
+      sessionId,
+      afterSeq,
+      options,
+    );
   }
 }

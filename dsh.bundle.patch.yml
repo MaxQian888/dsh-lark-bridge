@@ -11,3 +11,8 @@
         workspaceTitle: !!js process.env.DSH_LARK_WORKSPACE_TITLE
         agentPreset: !!js process.env.DSH_LARK_AGENT_PRESET || 'dsh-lark-safe'
         installBundledPreset: true
+        allowedSenderIds: !!js process.env.DSH_LARK_ALLOWED_SENDERS ? process.env.DSH_LARK_ALLOWED_SENDERS.split(',').map(value => value.trim()).filter(Boolean) : undefined
+        maxConcurrentTopics: !!js Number(process.env.DSH_LARK_MAX_CONCURRENT_TOPICS || 4)
+        maxPendingMessages: !!js Number(process.env.DSH_LARK_MAX_PENDING_MESSAGES || 256)
+        eventStatePath: !!js process.env.DSH_LARK_EVENT_STATE_PATH
+        eventRetentionMs: !!js Number(process.env.DSH_LARK_EVENT_RETENTION_MS || 604800000)
