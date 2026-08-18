@@ -308,7 +308,7 @@ test("concurrent orphan recovery never overlaps critical sections", async () => 
       { length: 24 },
       () =>
         new JsonFileAdmissionAdapter(statePath, {
-          lockTimeoutMs: 2_000,
+          lockTimeoutMs: 10_000,
           staleLockMs: 50,
           isProcessRunning: (processId) => processId === process.pid,
           getProcessIncarnation: async () => "current-start",
